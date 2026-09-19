@@ -1,8 +1,8 @@
 import os
 import re
-import requests
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
+from curl_cffi import requests
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_GAME") or "여기에_디스코드_웹후크_주소_입력"
 
@@ -53,13 +53,16 @@ def check_game_sale_info():
         send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다. (매일 정기 점검 알림)")
 
     target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
+    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://quasarzone.com/",
     }
 
     try:
-        response = requests.get(target_url, headers=headers, timeout=15)
+        # Chrome 브라우저의 TLS 핑거프린트를 완전 모방하여 403 차단 우회
+        response = requests.get(target_url, headers=headers, impersonate="chrome120", timeout=20)
         response.raise_for_status()
         html = response.text
     except Exception as e:
@@ -70,7 +73,7 @@ def check_game_sale_info():
 
     soup = BeautifulSoup(html, "html.parser")
     
-    # 퀘이사존 핫딜 목록 링크 파싱 (/bbs/qb_saleinfo/views/ 포함 태그)
+    # 퀘이사존 핫딜 목록 파싱
     a_tags = soup.find_all("a", href=True)
     
     valid_posts = []
@@ -82,13 +85,11 @@ def check_game_sale_info():
             if href in visited_links:
                 continue
             
-            # 제목 추출 (스팬 태그 포함 정제)
             title = a.get_text(strip=True)
             if len(title) > 3:
                 visited_links.add(href)
                 full_link = "https://quasarzone.com" + href if href.startswith("/") else href
                 
-                # 상위 요소에서 가격 텍스트 함께 추출
                 parent = a.find_parent("tr") or a.find_parent("div")
                 row_text = parent.get_text(separator=" ", strip=True) if parent else title
                 
