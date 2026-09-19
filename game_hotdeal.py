@@ -1,13 +1,12 @@
 import os
 import re
+import urllib.parse
 import requests
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_GAME") or "여기에_디스코드_웹후크_주소_입력"
 
-# 게임/상품권 전용 키워드 및 목표 가격 설정 (단위: 원)
 TARGET_ITEMS = {
     # --- [플랫폼 및 무료 배포] ---
     "EPIC": None, "에픽": None, "FREE": None, "무료": None,
@@ -40,54 +39,30 @@ def send_discord_message(message):
         print("[경고] 디스코드 웹후크 URL이 설정되지 않았습니다.")
         return
     try:
-        requests.post(DISCORD_WEBHOOK_URL, json={"content": message})
+        resp = requests.post(DISCORD_WEBHOOK_URL, json={"content": message}, timeout=10)
+        resp.raise_for_status()
     except Exception as e:
         print(f"디스코드 전송 실패: {e}")
 
 def check_game_sale_info():
-    # 한국 시간 기준 (UTC+9)
     kst = timezone(timedelta(hours=9))
     now_kst = datetime.now(kst)
 
-    # 매일 오전 09:00~09:30 사이에 생존 신고 알림 전송
     if now_kst.hour == 9 and now_kst.minute < 30:
-        send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다. (매일 정기 점검 알림)")
+        send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다.")
 
     target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
-    html = ""
+    encoded_target = urllib.parse.quote(target_url, safe='')
+    proxy_url = f"https://api.allorigins.win/raw?url={encoded_target}"
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    }
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-blink-features=AutomationControlled"
-                ]
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 800},
-                locale="ko-KR",
-                timezone_id="Asia/Seoul"
-            )
-            page = context.new_page()
-
-            # 봇 탐지 플래그 제거 (403 방지)
-            page.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            """)
-
-            response = page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-            
-            if response and response.status == 403:
-                raise Exception("퀘이사존 보안 시스템(403 Forbidden)에 의해 접근이 차단되었습니다.")
-
-            page.wait_for_timeout(3000)
-            html = page.content()
-            browser.close()
-
+        response = requests.get(proxy_url, headers=headers, timeout=20)
+        response.raise_for_status()
+        html = response.text
     except Exception as e:
         error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n페이지 요청 중 에러가 발생했습니다:\n{e}"
         print(error_msg)
@@ -95,8 +70,6 @@ def check_game_sale_info():
         return
 
     soup = BeautifulSoup(html, "html.parser")
-    
-    # 퀘이사존 핫딜 목록 파싱
     a_tags = soup.find_all("a", href=True)
     
     valid_posts = []
