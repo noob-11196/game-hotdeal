@@ -67,7 +67,6 @@ def check_game_sale_info():
             page = context.new_page()
             
             target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
-            # domcontentloaded 로 변경하여 빠르게 기본 HTML 구조만 로딩 (타임아웃 방지)
             page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
             page.wait_for_timeout(3000)
             
@@ -81,21 +80,25 @@ def check_game_sale_info():
 
     soup = BeautifulSoup(html, "html.parser")
     
-    rows = soup.select("table tbody tr, div.market-type-list div.market-info-type")
+    # 범용 링크 셀렉터로 모든 게시글 태그 탐색
+    links = soup.find_all("a", href=True)
     
     valid_posts = []
+    visited_links = set()
 
-    for row in rows:
-        a_tag = row.select_one("a[href*='/bbs/qb_saleinfo/views/']")
-        if not a_tag:
-            continue
+    for a in links:
+        href = a["href"]
+        # 게시글 상세페이지 링크 구조 감지 (/bbs/qb_saleinfo/views/...)
+        if "/views/" in href and "qb_saleinfo" in href:
+            if href in visited_links:
+                continue
             
-        title = a_tag.get_text(strip=True)
-        href = a_tag.get("href", "")
-        full_link = "https://quasarzone.com" + href if href.startswith("/") else href
-        
-        row_text = row.get_text(separator=" ", strip=True)
-        valid_posts.append((title, full_link, row_text))
+            title = a.get_text(strip=True)
+            if len(title) > 3:
+                visited_links.add(href)
+                full_link = "https://quasarzone.com" + href if href.startswith("/") else href
+                parent_text = a.parent.parent.get_text(separator=" ", strip=True) if a.parent and a.parent.parent else title
+                valid_posts.append((title, full_link, parent_text))
 
     if not valid_posts:
         print("게시글을 가져오지 못했거나 수집된 글이 없습니다.")
@@ -105,12 +108,12 @@ def check_game_sale_info():
     
     found_count = 0
 
-    for title, full_link, row_text in valid_posts:
+    for title, full_link, price_text in valid_posts:
         title_upper = title.upper()
 
         for keyword, max_price in TARGET_ITEMS.items():
             if keyword.upper() in title_upper:
-                price = extract_price(row_text) or extract_price(title)
+                price = extract_price(price_text) or extract_price(title)
                 
                 if max_price is None or price is None or price <= max_price:
                     print(f"[게임 핫딜 감지] 키워드: {keyword} | 제목: {title}")
