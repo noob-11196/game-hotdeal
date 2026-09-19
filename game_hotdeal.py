@@ -3,7 +3,6 @@ import re
 import requests
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_GAME") or "여기에_디스코드_웹후크_주소_입력"
 
@@ -53,52 +52,47 @@ def check_game_sale_info():
     if now_kst.hour == 9 and now_kst.minute < 30:
         send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다. (매일 정기 점검 알림)")
 
-    html = ""
+    target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
+    }
+
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox"]
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-                locale="ko-KR"
-            )
-            page = context.new_page()
-            
-            target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
-            page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
-            page.wait_for_timeout(3000)
-            
-            html = page.content()
-            browser.close()
+        response = requests.get(target_url, headers=headers, timeout=15)
+        response.raise_for_status()
+        html = response.text
     except Exception as e:
-        error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n크롤링 중 에러가 발생했습니다:\n{e}"
+        error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n페이지 요청 중 에러가 발생했습니다:\n{e}"
         print(error_msg)
         send_discord_message(error_msg)
         return
 
     soup = BeautifulSoup(html, "html.parser")
     
-    # 범용 링크 셀렉터로 모든 게시글 태그 탐색
-    links = soup.find_all("a", href=True)
+    # 퀘이사존 핫딜 목록 링크 파싱 (/bbs/qb_saleinfo/views/ 포함 태그)
+    a_tags = soup.find_all("a", href=True)
     
     valid_posts = []
     visited_links = set()
 
-    for a in links:
+    for a in a_tags:
         href = a["href"]
-        # 게시글 상세페이지 링크 구조 감지 (/bbs/qb_saleinfo/views/...)
         if "/views/" in href and "qb_saleinfo" in href:
             if href in visited_links:
                 continue
             
+            # 제목 추출 (스팬 태그 포함 정제)
             title = a.get_text(strip=True)
             if len(title) > 3:
                 visited_links.add(href)
                 full_link = "https://quasarzone.com" + href if href.startswith("/") else href
-                parent_text = a.parent.parent.get_text(separator=" ", strip=True) if a.parent and a.parent.parent else title
-                valid_posts.append((title, full_link, parent_text))
+                
+                # 상위 요소에서 가격 텍스트 함께 추출
+                parent = a.find_parent("tr") or a.find_parent("div")
+                row_text = parent.get_text(separator=" ", strip=True) if parent else title
+                
+                valid_posts.append((title, full_link, row_text))
 
     if not valid_posts:
         print("게시글을 가져오지 못했거나 수집된 글이 없습니다.")
@@ -108,12 +102,12 @@ def check_game_sale_info():
     
     found_count = 0
 
-    for title, full_link, price_text in valid_posts:
+    for title, full_link, row_text in valid_posts:
         title_upper = title.upper()
 
         for keyword, max_price in TARGET_ITEMS.items():
             if keyword.upper() in title_upper:
-                price = extract_price(price_text) or extract_price(title)
+                price = extract_price(row_text) or extract_price(title)
                 
                 if max_price is None or price is None or price <= max_price:
                     print(f"[게임 핫딜 감지] 키워드: {keyword} | 제목: {title}")
