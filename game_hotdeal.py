@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_GAME") or "여기에_디스코드_웹후크_주소_입력"
 
+# 게임/상품권 전용 키워드 및 목표 가격 설정 (단위: 원)
 TARGET_ITEMS = {
     # --- [플랫폼 및 무료 배포] ---
     "EPIC": None, "에픽": None, "FREE": None, "무료": None,
@@ -45,16 +46,18 @@ def send_discord_message(message):
         print(f"디스코드 전송 실패: {e}")
 
 def check_game_sale_info():
+    # 한국 시간 기준 (UTC+9)
     kst = timezone(timedelta(hours=9))
     now_kst = datetime.now(kst)
 
+    # 매일 오전 09:00~09:30 사이에 생존 신고 알림 전송
     if now_kst.hour == 9 and now_kst.minute < 30:
-        send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다.")
+        send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다. (정기 점검 알림)")
 
     target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
 
     try:
-        # cloudscraper를 통해 Cloudflare 보안 모듈 우회
+        # cloudscraper를 통한 Cloudflare 차단 해제
         scraper = cloudscraper.create_scraper(
             browser={
                 'browser': 'chrome',
