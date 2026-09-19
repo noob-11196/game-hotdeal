@@ -1,7 +1,7 @@
 import os
 import re
-import urllib.parse
 import requests
+import cloudscraper
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
 
@@ -52,15 +52,17 @@ def check_game_sale_info():
         send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다.")
 
     target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
-    encoded_target = urllib.parse.quote(target_url, safe='')
-    proxy_url = f"https://api.allorigins.win/raw?url={encoded_target}"
-
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    }
 
     try:
-        response = requests.get(proxy_url, headers=headers, timeout=20)
+        # cloudscraper를 통해 Cloudflare 보안 모듈 우회
+        scraper = cloudscraper.create_scraper(
+            browser={
+                'browser': 'chrome',
+                'platform': 'windows',
+                'desktop': True
+            }
+        )
+        response = scraper.get(target_url, timeout=20)
         response.raise_for_status()
         html = response.text
     except Exception as e:
