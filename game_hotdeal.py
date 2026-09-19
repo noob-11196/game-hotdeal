@@ -70,4 +70,56 @@ def check_game_sale_info():
             html = page.content()
             browser.close()
     except Exception as e:
-        error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n크롤링 중 에러가 발생했습니다:\n```{e}
+        error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n크롤링 중 에러가 발생했습니다:\n{e}"
+        print(error_msg)
+        send_discord_message(error_msg)
+        return
+
+    soup = BeautifulSoup(html, "html.parser")
+    
+    rows = soup.select("table tbody tr, div.market-type-list div.market-info-type")
+    
+    valid_posts = []
+
+    for row in rows:
+        a_tag = row.select_one("a[href*='/bbs/qb_saleinfo/views/']")
+        if not a_tag:
+            continue
+            
+        title = a_tag.get_text(strip=True)
+        href = a_tag.get("href", "")
+        full_link = "https://quasarzone.com" + href if href.startswith("/") else href
+        
+        row_text = row.get_text(separator=" ", strip=True)
+        valid_posts.append((title, full_link, row_text))
+
+    if not valid_posts:
+        print("게시글을 가져오지 못했거나 수집된 글이 없습니다.")
+        return
+
+    print(f"총 {len(valid_posts)}개의 게임 게시글 수집 완료. 키워드 검사 시작...")
+    
+    found_count = 0
+
+    for title, full_link, row_text in valid_posts:
+        title_upper = title.upper()
+
+        for keyword, max_price in TARGET_ITEMS.items():
+            if keyword.upper() in title_upper:
+                price = extract_price(row_text) or extract_price(title)
+                
+                if max_price is None or price is None or price <= max_price:
+                    print(f"[게임 핫딜 감지] 키워드: {keyword} | 제목: {title}")
+                    
+                    price_info = f"💰 감지 가격: {price:,}원" if price else "💰 가격 정보 미기재/무료"
+                    target_info = f" (목표가: {max_price:,}원 이하)" if max_price else ""
+                    
+                    msg = f"🎮 **게임 핫딜 감지!**\n**제목**: {title}\n{price_info}{target_info}\n🔗 {full_link}"
+                    send_discord_message(msg)
+                    found_count += 1
+                    break
+
+    print(f"검사 완료: 총 {found_count}개의 게임 핫딜 알림을 전송했습니다.")
+
+if __name__ == "__main__":
+    check_game_sale_info()
