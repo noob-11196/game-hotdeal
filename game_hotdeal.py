@@ -1,8 +1,9 @@
 import os
 import re
+import requests
 from datetime import datetime, timezone, timedelta
 from bs4 import BeautifulSoup
-from curl_cffi import requests
+from playwright.sync_api import sync_playwright
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_GAME") or "여기에_디스코드_웹후크_주소_입력"
 
@@ -53,18 +54,40 @@ def check_game_sale_info():
         send_discord_message("🟢 **[게임 핫딜 봇]** 서버가 정상 작동 중입니다. (매일 정기 점검 알림)")
 
     target_url = "https://quasarzone.com/bbs/qb_saleinfo?category=15"
-    
-    headers = {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-        "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://quasarzone.com/",
-    }
+    html = ""
 
     try:
-        # Chrome 브라우저의 TLS 핑거프린트를 완전 모방하여 403 차단 우회
-        response = requests.get(target_url, headers=headers, impersonate="chrome120", timeout=20)
-        response.raise_for_status()
-        html = response.text
+        with sync_playwright() as p:
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-blink-features=AutomationControlled"
+                ]
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                viewport={"width": 1280, "height": 800},
+                locale="ko-KR",
+                timezone_id="Asia/Seoul"
+            )
+            page = context.new_page()
+
+            # 봇 탐지 플래그 제거 (403 방지)
+            page.add_init_script("""
+                Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            """)
+
+            response = page.goto(target_url, wait_until="domcontentloaded", timeout=45000)
+            
+            if response and response.status == 403:
+                raise Exception("퀘이사존 보안 시스템(403 Forbidden)에 의해 접근이 차단되었습니다.")
+
+            page.wait_for_timeout(3000)
+            html = page.content()
+            browser.close()
+
     except Exception as e:
         error_msg = f"🚨 **[게임 핫딜 봇 오류 발생]**\n페이지 요청 중 에러가 발생했습니다:\n{e}"
         print(error_msg)
